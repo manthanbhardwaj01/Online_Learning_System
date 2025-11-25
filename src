@@ -1,0 +1,1076 @@
+import java.util.*;
+import java.time.*;
+
+/**
+ * Simple console-based Online Learning Management System (LMS)
+ * -------------------------------------------------------
+ * - Supports three roles: ADMIN, INSTRUCTOR, STUDENT
+ * - Admin: user management, course management, analytics, system settings, activity log
+ * - Instructor: create/manage courses, assignments, grade submissions, view performance
+ * - Student: enroll in courses, access materials, submit assignments, track progress, view grades
+ *
+ * NOTE:
+ *  - All data is stored in memory (no database).
+ *  - This is designed as an educational demo that matches the given requirement.
+ */
+public class LMSApp {
+
+    // ==== ENUMS & BASIC CLASSES ====
+
+    enum Role {
+        ADMIN, INSTRUCTOR, STUDENT
+    }
+
+    static class User {
+        int id;
+        String name;
+        String email;
+        Role role;
+
+        public User(int id, String name, String email, Role role) {
+            this.id = id;
+            this.name = name;
+            this.email = email;
+            this.role = role;
+        }
+
+        @Override
+        public String toString() {
+            return "[" + id + "] " + name + " (" + email + ", " + role + ")";
+        }
+    }
+
+    static class AssignmentSubmission {
+        User student;
+        String content;
+        Double grade;        // nullable
+        String feedback;     // nullable
+        LocalDateTime submittedAt;
+
+        AssignmentSubmission(User student, String content) {
+            this.student = student;
+            this.content = content;
+            this.submittedAt = LocalDateTime.now();
+        }
+    }
+
+    static class Assignment {
+        int id;
+        String title;
+        String description;
+        Map<Integer, AssignmentSubmission> submissions = new HashMap<>(); // key: studentId
+
+        Assignment(int id, String title, String description) {
+            this.id = id;
+            this.title = title;
+            this.description = description;
+        }
+
+        @Override
+        public String toString() {
+            return "Assignment[" + id + "] " + title + " - " + description;
+        }
+    }
+
+    static class Course {
+        int id;
+        String title;
+        String description;
+        String syllabus;
+        User instructor;
+        List<User> enrolledStudents = new ArrayList<>();
+        List<String> materials = new ArrayList<>();
+        List<Assignment> assignments = new ArrayList<>();
+
+        Course(int id, String title, String description, String syllabus, User instructor) {
+            this.id = id;
+            this.title = title;
+            this.description = description;
+            this.syllabus = syllabus;
+            this.instructor = instructor;
+        }
+
+        @Override
+        public String toString() {
+            return "Course[" + id + "] " + title +
+                   " | Instructor: " + (instructor != null ? instructor.name : "N/A") +
+                   " | Enrolled: " + enrolledStudents.size();
+        }
+    }
+
+    // ==== GLOBAL STATE ====
+
+    private static final Scanner SC = new Scanner(System.in);
+
+    private static final List<User> users = new ArrayList<>();
+    private static final List<Course> courses = new ArrayList<>();
+    private static final Map<String, String> systemSettings = new HashMap<>();
+    private static final List<String> activityLog = new ArrayList<>();
+
+    private static int nextUserId = 1;
+    private static int nextCourseId = 1;
+    private static int nextAssignmentId = 1;
+
+    // ==== MAIN ====
+
+    public static void main(String[] args) {
+        seedData(); // create some default users and demo course
+        mainMenu();
+    }
+
+    private static void mainMenu() {
+        while (true) {
+            System.out.println("\n========== Online Learning Management System ==========");
+            System.out.println("Select a user to log in:");
+            for (User u : users) {
+                System.out.println(u.id + ". " + u.name + " (" + u.role + ")");
+            }
+            System.out.println("0. Exit");
+            System.out.print("Enter user ID: ");
+
+            int choice = readInt();
+            if (choice == 0) {
+                System.out.println("Exiting LMS. Goodbye!");
+                break;
+            }
+
+            User currentUser = findUserById(choice);
+            if (currentUser == null) {
+                System.out.println("Invalid user ID. Try again.");
+                continue;
+            }
+
+            switch (currentUser.role) {
+                case ADMIN:
+                    adminDashboard(currentUser);
+                    break;
+                case INSTRUCTOR:
+                    instructorDashboard(currentUser);
+                    break;
+                case STUDENT:
+                    studentDashboard(currentUser);
+                    break;
+                default:
+                    System.out.println("Unknown role.");
+            }
+        }
+    }
+
+    // ==== DASHBOARDS ====
+
+    // ---- ADMIN DASHBOARD ----
+    private static void adminDashboard(User admin) {
+        while (true) {
+            System.out.println("\n===== Admin Dashboard (" + admin.name + ") =====");
+            System.out.println("1. User Management");
+            System.out.println("2. Course Management");
+            System.out.println("3. Performance Analytics");
+            System.out.println("4. System Settings");
+            System.out.println("5. System Activity Monitoring");
+            System.out.println("0. Logout");
+            System.out.print("Choose an option: ");
+
+            int option = readInt();
+            switch (option) {
+                case 1:
+                    adminUserManagement();
+                    break;
+                case 2:
+                    adminCourseManagement(admin);
+                    break;
+                case 3:
+                    adminPerformanceAnalytics();
+                    break;
+                case 4:
+                    adminSystemSettings();
+                    break;
+                case 5:
+                    adminActivityMonitoring();
+                    break;
+                case 0:
+                    return;
+                default:
+                    System.out.println("Invalid choice.");
+            }
+        }
+    }
+
+    private static void adminUserManagement() {
+        while (true) {
+            System.out.println("\n--- User Management ---");
+            System.out.println("1. List users");
+            System.out.println("2. Create user");
+            System.out.println("3. Edit user");
+            System.out.println("4. Delete user");
+            System.out.println("0. Back");
+            System.out.print("Choose: ");
+            int op = readInt();
+
+            switch (op) {
+                case 1:
+                    listUsers();
+                    break;
+                case 2:
+                    createUser();
+                    break;
+                case 3:
+                    editUser();
+                    break;
+                case 4:
+                    deleteUser();
+                    break;
+                case 0:
+                    return;
+                default:
+                    System.out.println("Invalid option.");
+            }
+        }
+    }
+
+    private static void listUsers() {
+        System.out.println("\nUsers:");
+        for (User u : users) {
+            System.out.println(u);
+        }
+    }
+
+    private static void createUser() {
+        System.out.print("Enter name: ");
+        String name = readLine();
+        System.out.print("Enter email: ");
+        String email = readLine();
+        System.out.print("Enter role (1=ADMIN, 2=INSTRUCTOR, 3=STUDENT): ");
+        int r = readInt();
+
+        Role role;
+        switch (r) {
+            case 1: role = Role.ADMIN; break;
+            case 2: role = Role.INSTRUCTOR; break;
+            case 3: role = Role.STUDENT; break;
+            default:
+                System.out.println("Invalid role.");
+                return;
+        }
+
+        User u = new User(nextUserId++, name, email, role);
+        users.add(u);
+        logActivity("Admin created user: " + u);
+        System.out.println("User created successfully.");
+    }
+
+    private static void editUser() {
+        System.out.print("Enter user ID to edit: ");
+        int id = readInt();
+        User u = findUserById(id);
+        if (u == null) {
+            System.out.println("User not found.");
+            return;
+        }
+
+        System.out.println("Editing: " + u);
+        System.out.print("New name (leave empty to keep): ");
+        String newName = readLine();
+        System.out.print("New email (leave empty to keep): ");
+        String newEmail = readLine();
+        System.out.print("Change role? (1=ADMIN, 2=INSTRUCTOR, 3=STUDENT, 0=no): ");
+        int r = readInt();
+
+        if (!newName.trim().isEmpty()) u.name = newName;
+        if (!newEmail.trim().isEmpty()) u.email = newEmail;
+        if (r != 0) {
+            switch (r) {
+                case 1: u.role = Role.ADMIN; break;
+                case 2: u.role = Role.INSTRUCTOR; break;
+                case 3: u.role = Role.STUDENT; break;
+                default: System.out.println("Invalid role, keeping old role.");
+            }
+        }
+
+        logActivity("Admin edited user: " + u);
+        System.out.println("User updated successfully.");
+    }
+
+    private static void deleteUser() {
+        System.out.print("Enter user ID to delete: ");
+        int id = readInt();
+        User u = findUserById(id);
+        if (u == null) {
+            System.out.println("User not found.");
+            return;
+        }
+        users.remove(u);
+        logActivity("Admin deleted user: " + u);
+        System.out.println("User deleted successfully.");
+    }
+
+    private static void adminCourseManagement(User admin) {
+        while (true) {
+            System.out.println("\n--- Course Management (Admin) ---");
+            System.out.println("1. List all courses");
+            System.out.println("2. Create course");
+            System.out.println("3. Edit course");
+            System.out.println("4. Delete course");
+            System.out.println("0. Back");
+            System.out.print("Choose: ");
+            int op = readInt();
+
+            switch (op) {
+                case 1:
+                    listCourses();
+                    break;
+                case 2:
+                    createCourseAsAdmin();
+                    break;
+                case 3:
+                    editCourse();
+                    break;
+                case 4:
+                    deleteCourse();
+                    break;
+                case 0:
+                    return;
+                default:
+                    System.out.println("Invalid choice.");
+            }
+        }
+    }
+
+    private static void listCourses() {
+        System.out.println("\nCourses:");
+        if (courses.isEmpty()) {
+            System.out.println("No courses available.");
+            return;
+        }
+        for (Course c : courses) {
+            System.out.println(c);
+        }
+    }
+
+    private static void createCourseAsAdmin() {
+        System.out.print("Course title: ");
+        String title = readLine();
+        System.out.print("Description: ");
+        String desc = readLine();
+        System.out.print("Syllabus: ");
+        String syl = readLine();
+
+        System.out.println("Assign instructor by ID (must be INSTRUCTOR):");
+        listUsers();
+        System.out.print("Instructor ID: ");
+        int iid = readInt();
+        User instr = findUserById(iid);
+        if (instr == null || instr.role != Role.INSTRUCTOR) {
+            System.out.println("Invalid instructor.");
+            return;
+        }
+
+        Course c = new Course(nextCourseId++, title, desc, syl, instr);
+        courses.add(c);
+        logActivity("Admin created course: " + c);
+        System.out.println("Course created successfully.");
+    }
+
+    private static void editCourse() {
+        listCourses();
+        System.out.print("Enter course ID to edit: ");
+        int cid = readInt();
+        Course c = findCourseById(cid);
+        if (c == null) {
+            System.out.println("Course not found.");
+            return;
+        }
+
+        System.out.println("Editing " + c);
+        System.out.print("New title (empty to keep): ");
+        String t = readLine();
+        System.out.print("New description (empty to keep): ");
+        String d = readLine();
+        System.out.print("New syllabus (empty to keep): ");
+        String s = readLine();
+
+        if (!t.trim().isEmpty()) c.title = t;
+        if (!d.trim().isEmpty()) c.description = d;
+        if (!s.trim().isEmpty()) c.syllabus = s;
+
+        logActivity("Course updated: " + c);
+        System.out.println("Course updated successfully.");
+    }
+
+    private static void deleteCourse() {
+        listCourses();
+        System.out.print("Enter course ID to delete: ");
+        int cid = readInt();
+        Course c = findCourseById(cid);
+        if (c == null) {
+            System.out.println("Course not found.");
+            return;
+        }
+        courses.remove(c);
+        logActivity("Course deleted: " + c);
+        System.out.println("Course deleted.");
+    }
+
+    private static void adminPerformanceAnalytics() {
+        System.out.println("\n--- Performance Analytics ---");
+
+        if (courses.isEmpty()) {
+            System.out.println("No courses to analyze.");
+            return;
+        }
+
+        int totalEnrollments = 0;
+        int totalAssignments = 0;
+        int totalSubmissions = 0;
+        double totalGrades = 0;
+        int gradedCount = 0;
+
+        for (Course c : courses) {
+            totalEnrollments += c.enrolledStudents.size();
+            totalAssignments += c.assignments.size();
+
+            for (Assignment a : c.assignments) {
+                for (AssignmentSubmission sub : a.submissions.values()) {
+                    totalSubmissions++;
+                    if (sub.grade != null) {
+                        totalGrades += sub.grade;
+                        gradedCount++;
+                    }
+                }
+            }
+        }
+
+        System.out.println("Total Courses: " + courses.size());
+        System.out.println("Total Enrollments: " + totalEnrollments);
+        System.out.println("Total Assignments: " + totalAssignments);
+        System.out.println("Total Submissions: " + totalSubmissions);
+        if (gradedCount > 0) {
+            System.out.println("Average Grade: " + (totalGrades / gradedCount));
+        } else {
+            System.out.println("Average Grade: N/A (no graded submissions)");
+        }
+
+        System.out.println("\nCourse-wise Enrollment:");
+        for (Course c : courses) {
+            System.out.println("- " + c.title + ": " + c.enrolledStudents.size() + " students");
+        }
+    }
+
+    private static void adminSystemSettings() {
+        while (true) {
+            System.out.println("\n--- System Settings ---");
+            System.out.println("Current settings:");
+            if (systemSettings.isEmpty()) {
+                System.out.println("(none)");
+            } else {
+                for (Map.Entry<String, String> e : systemSettings.entrySet()) {
+                    System.out.println(e.getKey() + " = " + e.getValue());
+                }
+            }
+            System.out.println("\n1. Add / Update setting");
+            System.out.println("2. Remove setting");
+            System.out.println("0. Back");
+            System.out.print("Choose: ");
+            int op = readInt();
+            switch (op) {
+                case 1:
+                    System.out.print("Setting key: ");
+                    String k = readLine();
+                    System.out.print("Setting value: ");
+                    String v = readLine();
+                    systemSettings.put(k, v);
+                    logActivity("System setting updated: " + k + "=" + v);
+                    System.out.println("Settings updated successfully.");
+                    break;
+                case 2:
+                    System.out.print("Setting key to remove: ");
+                    String rk = readLine();
+                    systemSettings.remove(rk);
+                    logActivity("System setting removed: " + rk);
+                    System.out.println("Setting removed (if it existed).");
+                    break;
+                case 0:
+                    return;
+                default:
+                    System.out.println("Invalid choice.");
+            }
+        }
+    }
+
+    private static void adminActivityMonitoring() {
+        System.out.println("\n--- System Activity Log (latest first) ---");
+        if (activityLog.isEmpty()) {
+            System.out.println("No activity yet.");
+            return;
+        }
+        for (int i = activityLog.size() - 1; i >= 0; i--) {
+            System.out.println(activityLog.get(i));
+        }
+    }
+
+    // ---- INSTRUCTOR DASHBOARD ----
+    private static void instructorDashboard(User instructor) {
+        while (true) {
+            System.out.println("\n===== instructor Dashboard (" + instructor.name + ") =====");
+            System.out.println("1. Manage My Courses");
+            System.out.println("2. Assignment Grading");
+            System.out.println("3. Student Performance");
+            System.out.println("4. Course Enrollment Stats");
+            System.out.println("5. Feedback Summary");
+            System.out.println("0. Logout");
+            System.out.print("Choose: ");
+
+            int op = readInt();
+            switch (op) {
+                case 1:
+                    instructorCourseManagement(instructor);
+                    break;
+                case 2:
+                    instructorAssignmentGrading(instructor);
+                    break;
+                case 3:
+                    instructorStudentPerformance(instructor);
+                    break;
+                case 4:
+                    instructorEnrollmentStats(instructor);
+                    break;
+                case 5:
+                    instructorFeedbackSummary(instructor);
+                    break;
+                case 0:
+                    return;
+                default:
+                    System.out.println("Invalid choice.");
+            }
+        }
+    }
+
+    private static List<Course> getCoursesByInstructor(User instructor) {
+        List<Course> result = new ArrayList<>();
+        for (Course c : courses) {
+            if (c.instructor != null && c.instructor.id == instructor.id) {
+                result.add(c);
+            }
+        }
+        return result;
+    }
+
+    private static void instructorCourseManagement(User instructor) {
+        while (true) {
+            System.out.println("\n--- My Courses ---");
+            List<Course> myCourses = getCoursesByInstructor(instructor);
+            if (myCourses.isEmpty()) {
+                System.out.println("You have no courses yet.");
+            } else {
+                for (Course c : myCourses) {
+                    System.out.println(c);
+                }
+            }
+            System.out.println("1. Create new course");
+            System.out.println("2. Edit course");
+            System.out.println("3. Add course material");
+            System.out.println("4. Create assignment");
+            System.out.println("0. Back");
+            System.out.print("Choose: ");
+            int op = readInt();
+
+            switch (op) {
+                case 1:
+                    createCourseAsInstructor(instructor);
+                    break;
+                case 2:
+                    editCourseAsInstructor(instructor);
+                    break;
+                case 3:
+                    addCourseMaterial(instructor);
+                    break;
+                case 4:
+                    createAssignment(instructor);
+                    break;
+                case 0:
+                    return;
+                default:
+                    System.out.println("Invalid choice.");
+            }
+        }
+    }
+
+    private static void createCourseAsInstructor(User instructor) {
+        System.out.print("Course title: ");
+        String title = readLine();
+        System.out.print("Description: ");
+        String desc = readLine();
+        System.out.print("Syllabus: ");
+        String syl = readLine();
+
+        Course c = new Course(nextCourseId++, title, desc, syl, instructor);
+        courses.add(c);
+        logActivity("Instructor " + instructor.name + " created course: " + c);
+        System.out.println("Course created successfully.");
+    }
+
+    private static void editCourseAsInstructor(User instructor) {
+        List<Course> myCourses = getCoursesByInstructor(instructor);
+        if (myCourses.isEmpty()) {
+            System.out.println("No courses to edit.");
+            return;
+        }
+        System.out.print("Enter course ID to edit: ");
+        int cid = readInt();
+        Course c = findCourseById(cid);
+        if (c == null || c.instructor.id != instructor.id) {
+            System.out.println("Course not found or not yours.");
+            return;
+        }
+
+        System.out.print("New title (empty to keep): ");
+        String t = readLine();
+        System.out.print("New description (empty to keep): ");
+        String d = readLine();
+        System.out.print("New syllabus (empty to keep): ");
+        String s = readLine();
+
+        if (!t.trim().isEmpty()) c.title = t;
+        if (!d.trim().isEmpty()) c.description = d;
+        if (!s.trim().isEmpty()) c.syllabus = s;
+
+        logActivity("Instructor updated course: " + c);
+        System.out.println("Course updated.");
+    }
+
+    private static void addCourseMaterial(User instructor) {
+        List<Course> myCourses = getCoursesByInstructor(instructor);
+        if (myCourses.isEmpty()) {
+            System.out.println("No courses.");
+            return;
+        }
+        System.out.print("Enter course ID to add material: ");
+        int cid = readInt();
+        Course c = findCourseById(cid);
+        if (c == null || c.instructor.id != instructor.id) {
+            System.out.println("Course not found or not yours.");
+            return;
+        }
+
+        System.out.print("Enter material description or link: ");
+        String m = readLine();
+        c.materials.add(m);
+        logActivity("Material added to course " + c.title + " by " + instructor.name);
+        System.out.println("Material added.");
+    }
+
+    private static void createAssignment(User instructor) {
+        List<Course> myCourses = getCoursesByInstructor(instructor);
+        if (myCourses.isEmpty()) {
+            System.out.println("No courses.");
+            return;
+        }
+        System.out.print("Enter course ID to add assignment: ");
+        int cid = readInt();
+        Course c = findCourseById(cid);
+        if (c == null || c.instructor.id != instructor.id) {
+            System.out.println("Course not found or not yours.");
+            return;
+        }
+
+        System.out.print("Assignment title: ");
+        String t = readLine();
+        System.out.print("Assignment description: ");
+        String d = readLine();
+
+        Assignment a = new Assignment(nextAssignmentId++, t, d);
+        c.assignments.add(a);
+        logActivity("Assignment created (" + t + ") in course " + c.title + " by " + instructor.name);
+        System.out.println("Assignment created.");
+    }
+
+    private static void instructorAssignmentGrading(User instructor) {
+        List<Course> myCourses = getCoursesByInstructor(instructor);
+        if (myCourses.isEmpty()) {
+            System.out.println("No courses.");
+            return;
+        }
+        System.out.print("Enter course ID to view assignments: ");
+        int cid = readInt();
+        Course c = findCourseById(cid);
+        if (c == null || c.instructor.id != instructor.id) {
+            System.out.println("Course not found or not yours.");
+            return;
+        }
+
+        if (c.assignments.isEmpty()) {
+            System.out.println("No assignments in this course.");
+            return;
+        }
+
+        for (Assignment a : c.assignments) {
+            System.out.println(a);
+        }
+        System.out.print("Enter assignment ID to grade: ");
+        int aid = readInt();
+        Assignment a = null;
+        for (Assignment x : c.assignments) {
+            if (x.id == aid) { a = x; break; }
+        }
+        if (a == null) {
+            System.out.println("Assignment not found.");
+            return;
+        }
+
+        if (a.submissions.isEmpty()) {
+            System.out.println("No submissions for this assignment.");
+            return;
+        }
+
+        for (AssignmentSubmission sub : a.submissions.values()) {
+            System.out.println("\nSubmission by " + sub.student.name + " at " + sub.submittedAt);
+            System.out.println("Content: " + sub.content);
+            if (sub.grade != null) {
+                System.out.println("Current grade: " + sub.grade + ", feedback: " + sub.feedback);
+            }
+            System.out.print("Enter grade (or -1 to skip): ");
+            double g = readDouble();
+            if (g >= 0) {
+                sub.grade = g;
+                System.out.print("Enter feedback: ");
+                String fb = readLine();
+                sub.feedback = fb;
+                logActivity("Instructor " + instructor.name + " graded " + a.title +
+                        " for " + sub.student.name + " with " + g);
+                System.out.println("Grade saved.");
+            }
+        }
+    }
+
+    private static void instructorStudentPerformance(User instructor) {
+        List<Course> myCourses = getCoursesByInstructor(instructor);
+        if (myCourses.isEmpty()) {
+            System.out.println("No courses.");
+            return;
+        }
+        System.out.println("\n--- Student Performance ---");
+        for (Course c : myCourses) {
+            System.out.println("\nCourse: " + c.title);
+            if (c.enrolledStudents.isEmpty()) {
+                System.out.println("  No enrolled students.");
+                continue;
+            }
+            for (User s : c.enrolledStudents) {
+                double totalGrades = 0;
+                int gradeCount = 0;
+                for (Assignment a : c.assignments) {
+                    AssignmentSubmission sub = a.submissions.get(s.id);
+                    if (sub != null && sub.grade != null) {
+                        totalGrades += sub.grade;
+                        gradeCount++;
+                    }
+                }
+                String avg = gradeCount > 0 ? String.format("%.2f", totalGrades / gradeCount) : "N/A";
+                System.out.println("  " + s.name + " | Avg Grade: " + avg);
+            }
+        }
+    }
+
+    private static void instructorEnrollmentStats(User instructor) {
+        List<Course> myCourses = getCoursesByInstructor(instructor);
+        if (myCourses.isEmpty()) {
+            System.out.println("No courses.");
+            return;
+        }
+        System.out.println("\n--- Course Enrollment Stats ---");
+        for (Course c : myCourses) {
+            System.out.println("Course: " + c.title +
+                    " | Enrolled: " + c.enrolledStudents.size() +
+                    " | Assignments: " + c.assignments.size());
+        }
+    }
+
+    private static void instructorFeedbackSummary(User instructor) {
+        List<Course> myCourses = getCoursesByInstructor(instructor);
+        if (myCourses.isEmpty()) {
+            System.out.println("No courses.");
+            return;
+        }
+        System.out.println("\n--- Feedback Summary ---");
+        for (Course c : myCourses) {
+            System.out.println("Course: " + c.title);
+            for (Assignment a : c.assignments) {
+                System.out.println("  Assignment: " + a.title);
+                for (AssignmentSubmission sub : a.submissions.values()) {
+                    if (sub.feedback != null) {
+                        System.out.println("    " + sub.student.name + " -> Grade: " +
+                                sub.grade + ", Feedback: " + sub.feedback);
+                    }
+                }
+            }
+        }
+    }
+
+    // ---- STUDENT DASHBOARD ----
+    private static void studentDashboard(User student) {
+        while (true) {
+            System.out.println("\n===== Student Dashboard (" + student.name + ") =====");
+            System.out.println("1. Course Enrollment");
+            System.out.println("2. Access Materials");
+            System.out.println("3. Assignment Submission");
+            System.out.println("4. Progress Tracking");
+            System.out.println("5. Feedback and Grades");
+            System.out.println("0. Logout");
+            System.out.print("Choose: ");
+
+            int op = readInt();
+            switch (op) {
+                case 1:
+                    studentCourseEnrollment(student);
+                    break;
+                case 2:
+                    studentAccessMaterials(student);
+                    break;
+                case 3:
+                    studentAssignmentSubmission(student);
+                    break;
+                case 4:
+                    studentProgressTracking(student);
+                    break;
+                case 5:
+                    studentFeedbackAndGrades(student);
+                    break;
+                case 0:
+                    return;
+                default:
+                    System.out.println("Invalid choice.");
+            }
+        }
+    }
+
+    private static List<Course> getCoursesOfStudent(User student) {
+        List<Course> res = new ArrayList<>();
+        for (Course c : courses) {
+            for (User s : c.enrolledStudents) {
+                if (s.id == student.id) {
+                    res.add(c);
+                    break;
+                }
+            }
+        }
+        return res;
+    }
+
+    private static void studentCourseEnrollment(User student) {
+        System.out.println("\n--- Available Courses ---");
+        if (courses.isEmpty()) {
+            System.out.println("No courses yet.");
+            return;
+        }
+        for (Course c : courses) {
+            boolean enrolled = c.enrolledStudents.stream().anyMatch(s -> s.id == student.id);
+            System.out.println(c + (enrolled ? " [ENROLLED]" : ""));
+        }
+
+        System.out.print("Enter course ID to enroll (0 to cancel): ");
+        int cid = readInt();
+        if (cid == 0) return;
+        Course c = findCourseById(cid);
+        if (c == null) {
+            System.out.println("Course not found.");
+            return;
+        }
+        boolean already = c.enrolledStudents.stream().anyMatch(s -> s.id == student.id);
+        if (already) {
+            System.out.println("Already enrolled.");
+            return;
+        }
+        c.enrolledStudents.add(student);
+        logActivity("Student " + student.name + " enrolled in course " + c.title);
+        System.out.println("Enrollment successful.");
+    }
+
+    private static void studentAccessMaterials(User student) {
+        List<Course> myCourses = getCoursesOfStudent(student);
+        if (myCourses.isEmpty()) {
+            System.out.println("You are not enrolled in any course.");
+            return;
+        }
+        System.out.println("\nYour enrolled courses:");
+        for (Course c : myCourses) {
+            System.out.println(c.id + ". " + c.title);
+        }
+        System.out.print("Enter course ID to view materials: ");
+        int cid = readInt();
+        Course c = findCourseById(cid);
+        if (c == null || !myCourses.contains(c)) {
+            System.out.println("Not enrolled or course not found.");
+            return;
+        }
+        System.out.println("\nMaterials for " + c.title + ":");
+        if (c.materials.isEmpty()) {
+            System.out.println("No materials yet.");
+        } else {
+            for (String m : c.materials) {
+                System.out.println("- " + m);
+            }
+        }
+    }
+
+    private static void studentAssignmentSubmission(User student) {
+        List<Course> myCourses = getCoursesOfStudent(student);
+        if (myCourses.isEmpty()) {
+            System.out.println("You are not enrolled in any course.");
+            return;
+        }
+        System.out.println("\nYour courses and assignments:");
+        for (Course c : myCourses) {
+            System.out.println("\nCourse: " + c.title);
+            if (c.assignments.isEmpty()) {
+                System.out.println("  No assignments.");
+            } else {
+                for (Assignment a : c.assignments) {
+                    System.out.println("  " + a.id + ". " + a.title + " - " + a.description);
+                }
+            }
+        }
+
+        System.out.print("\nEnter course ID for assignment submission: ");
+        int cid = readInt();
+        Course c = findCourseById(cid);
+        if (c == null || !myCourses.contains(c) || c.assignments.isEmpty()) {
+            System.out.println("Invalid course or no assignments.");
+            return;
+        }
+
+        System.out.print("Enter assignment ID to submit: ");
+        int aid = readInt();
+        Assignment a = null;
+        for (Assignment x : c.assignments) {
+            if (x.id == aid) { a = x; break; }
+        }
+        if (a == null) {
+            System.out.println("Assignment not found.");
+            return;
+        }
+
+        AssignmentSubmission existing = a.submissions.get(student.id);
+        if (existing != null) {
+            System.out.println("You already submitted. This will overwrite your previous submission.");
+        }
+        System.out.println("Enter your submission content (single line): ");
+        String content = readLine();
+        AssignmentSubmission sub = new AssignmentSubmission(student, content);
+        a.submissions.put(student.id, sub);
+        logActivity("Student " + student.name + " submitted assignment " + a.title + " for course " + c.title);
+        System.out.println("Assignment submitted successfully.");
+    }
+
+    private static void studentProgressTracking(User student) {
+        List<Course> myCourses = getCoursesOfStudent(student);
+        if (myCourses.isEmpty()) {
+            System.out.println("You are not enrolled in any course.");
+            return;
+        }
+        System.out.println("\n--- Progress Tracking ---");
+        for (Course c : myCourses) {
+            int totalAssignments = c.assignments.size();
+            int submitted = 0;
+            double totalGrade = 0;
+            int gradeCount = 0;
+            for (Assignment a : c.assignments) {
+                AssignmentSubmission sub = a.submissions.get(student.id);
+                if (sub != null) {
+                    submitted++;
+                    if (sub.grade != null) {
+                        totalGrade += sub.grade;
+                        gradeCount++;
+                    }
+                }
+            }
+            String avg = gradeCount > 0 ? String.format("%.2f", totalGrade / gradeCount) : "N/A";
+            System.out.println("Course: " + c.title);
+            System.out.println("  Assignments submitted: " + submitted + "/" + totalAssignments);
+            System.out.println("  Average grade: " + avg);
+        }
+    }
+
+    private static void studentFeedbackAndGrades(User student) {
+        List<Course> myCourses = getCoursesOfStudent(student);
+        if (myCourses.isEmpty()) {
+            System.out.println("You are not enrolled in any course.");
+            return;
+        }
+        System.out.println("\n--- Feedback and Grades ---");
+        for (Course c : myCourses) {
+            System.out.println("Course: " + c.title);
+            for (Assignment a : c.assignments) {
+                AssignmentSubmission sub = a.submissions.get(student.id);
+                if (sub != null && sub.grade != null) {
+                    System.out.println("  Assignment: " + a.title);
+                    System.out.println("    Grade: " + sub.grade);
+                    System.out.println("    Feedback: " + sub.feedback);
+                }
+            }
+        }
+    }
+
+    // ==== HELPERS ====
+
+    private static void seedData() {
+        User admin = new User(nextUserId++, "Admin User", "admin@example.com", Role.ADMIN);
+        User instructor = new User(nextUserId++, "Instructor One", "inst1@example.com", Role.INSTRUCTOR);
+        User student = new User(nextUserId++, "Student One", "stud1@example.com", Role.STUDENT);
+        users.add(admin);
+        users.add(instructor);
+        users.add(student);
+
+        Course demo = new Course(nextCourseId++, "Demo Java Course",
+                "Introduction to Java programming", "Basics, OOP, Collections", instructor);
+        demo.materials.add("Lecture 1 slides (intro.pdf)");
+        demo.materials.add("Sample code repository link");
+        courses.add(demo);
+
+        logActivity("System initialized with sample users and demo course.");
+    }
+
+    private static User findUserById(int id) {
+        for (User u : users) {
+            if (u.id == id) return u;
+        }
+        return null;
+    }
+
+    private static Course findCourseById(int id) {
+        for (Course c : courses) {
+            if (c.id == id) return c;
+        }
+        return null;
+    }
+
+    private static void logActivity(String msg) {
+        String entry = LocalDateTime.now() + " - " + msg;
+        activityLog.add(entry);
+    }
+
+    private static int readInt() {
+        while (true) {
+            try {
+                String line = SC.nextLine();
+                return Integer.parseInt(line.trim());
+            } catch (Exception e) {
+                System.out.print("Enter a valid integer: ");
+            }
+        }
+    }
+
+    private static double readDouble() {
+        while (true) {
+            try {
+                String line = SC.nextLine();
+                return Double.parseDouble(line.trim());
+            } catch (Exception e) {
+                System.out.print("Enter a valid number: ");
+            }
+        }
+    }
+
+    private static String readLine() {
+        String line = SC.nextLine();
+        return line == null ? "" : line;
+    }
+}
